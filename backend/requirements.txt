@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+pymupdf
+python-dotenv
+requests
+python-dotenv
+requests
+groq
+celery
+redis
