@@ -15,23 +15,32 @@ import Groq from 'groq-sdk';
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-const getLayoutedElements = (nodes: any[], edges: any[], direction = 'TB') => {
+const getLayoutedElements = (nodes: any[] = [], edges: any[] = [], direction = 'TB') => {
+  const safeNodes = Array.isArray(nodes) ? nodes : [];
+  const safeEdges = Array.isArray(edges) ? edges : [];
   const isHorizontal = direction === 'LR';
   dagreGraph.setGraph({ rankdir: direction });
 
-  nodes.forEach((node) => {
-    // Approx dimensions for a text node
-    dagreGraph.setNode(node.id, { width: 250, height: 60 });
+  safeNodes.forEach((node) => {
+    if (node && node.id) {
+      dagreGraph.setNode(node.id, { width: 250, height: 60 });
+    }
   });
 
-  edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target);
+  safeEdges.forEach((edge) => {
+    if (edge && edge.source && edge.target) {
+      dagreGraph.setEdge(edge.source, edge.target);
+    }
   });
 
-  dagre.layout(dagreGraph);
+  try {
+    dagre.layout(dagreGraph);
+  } catch (e) {
+    console.error("Dagre layout error:", e);
+  }
 
-  const newNodes = nodes.map((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id);
+  const newNodes = safeNodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id) || { x: Math.random() * 200, y: Math.random() * 200 };
     const newNode = {
       ...node,
       targetPosition: isHorizontal ? 'left' : 'top',
@@ -44,7 +53,7 @@ const getLayoutedElements = (nodes: any[], edges: any[], direction = 'TB') => {
     return newNode;
   });
 
-  return { nodes: newNodes, edges };
+  return { nodes: newNodes, edges: safeEdges };
 };
 
 function ClassroomContent() {
@@ -70,6 +79,8 @@ function ClassroomContent() {
   const [currentInput, setCurrentInput] = useState("");
   const [isTalking, setIsTalking] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [characterFrame, setCharacterFrame] = useState('idle');
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const [whiteboardSlides, setWhiteboardSlides] = useState<any[]>([{
     type: 'html',
     content: `
@@ -83,32 +94,29 @@ function ClassroomContent() {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [sessionStarted, setSessionStarted] = useState(false);
   const [selectedNode, setSelectedNode] = useState<{ label: string, description: string } | null>(null);
-  const [sessionOwnerUid, setSessionOwnerUid] = useState<string | null>(null);  // Pre-load voices for Web Speech API
+  const [sessionOwnerUid, setSessionOwnerUid] = useState<string | null>(null);
+  // Stop audio on component unmount
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.getVoices();
-      const handleVoicesChanged = () => {
-        window.speechSynthesis.getVoices();
-      };
-      window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
-      return () => {
-        window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
-      };
-    }
+    return () => {
+      if (activeAudioRef.current) {
+        activeAudioRef.current.pause();
+      }
+    };
   }, []);
 
   const unlockSpeechSynthesis = () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        // Speak a silent space to prime/unlock the engine on user gesture
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.resume();
-        const unlock = new SpeechSynthesisUtterance(' ');
-        unlock.volume = 0;
-        window.speechSynthesis.speak(unlock);
-      } catch (e) {
-        console.warn("Failed to unlock speech synthesis:", e);
+    try {
+      // Play a short silent buffer to unlock HTML5 Audio in the browser
+      const audio = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
+      audio.play().catch(e => console.log("Audio priming ignored", e));
+      
+      // Prime window.speechSynthesis to bypass autoplay restrictions
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        const u = new SpeechSynthesisUtterance("");
+        window.speechSynthesis.speak(u);
       }
+    } catch (e) {
+      console.log("Audio priming error", e);
     }
   };
 
@@ -206,24 +214,191 @@ function ClassroomContent() {
 
   // Enforce BYOK on load: If user data is loaded and they don't have a key, pop up immediately.
   useEffect(() => {
-    if (userData && !userData.customGroqKey) {
+    if (userData && (!userData.customGroqKey || !userData.sarvamApiKey)) {
       setShowKeyModal(true);
     }
   }, [userData]);
 
-  const searchYouTube = async (query: string) => {
-    try {
-      const ddgUrl = `https://html.duckduckgo.com/html/?q=site:youtube.com+${encodeURIComponent(query)}`;
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`;
-      const res = await fetch(proxyUrl);
-      const html = await res.text();
-      const matches = [...html.matchAll(/href="[^"]*youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/g)];
-      const videoIds = [...new Set(matches.map(m => m[1]))].slice(0, 2);
-      return videoIds;
-    } catch (e) {
-      console.error("YouTube search error:", e);
+  // Character Animation Controller
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isSending) {
+      setCharacterFrame('thinking');
+    } else if (isTalking) {
+      // Cycle between talking, idle (closed mouth), and teaching
+      let frames = ['talking', 'idle', 'teaching', 'idle'];
+      let idx = 0;
+      setCharacterFrame(frames[idx]);
+      interval = setInterval(() => {
+        idx = (idx + 1) % frames.length;
+        setCharacterFrame(frames[idx]);
+      }, 350); // Fast dynamic speaking animation
+    } else {
+      setCharacterFrame('idle');
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isSending, isTalking]);
+
+  const isGenericQuery = (q: string): boolean => {
+    const lower = q.toLowerCase().trim();
+    const genericWords = [
+      "summarize", "summary", "explain", "points", "detail", "details", 
+      "hello", "hi", "hey", "introduce", "thanks", "thank you", 
+      "yes", "no", "ok", "okay", "please", "help", "question", "answer",
+      "tell me", "what is", "who are", "about", "write", "generate", "and", "or", "give", "all"
+    ];
+    
+    const words = lower.split(/\s+/);
+    const nonGenericWords = words.filter(w => !genericWords.includes(w) && w.length > 2);
+    
+    return nonGenericWords.length === 0;
+  };
+
+  const searchYouTube = async (rawQuery: string) => {
+    const query = rawQuery.trim().split(/\s+/).slice(0, 5).join(" ");
+    if (!query || isGenericQuery(query)) {
+      console.log("YouTube search skipped: Query is generic or empty.");
       return [];
     }
+
+    const instances = [
+      "https://invidious.projectsegfau.lt",
+      "https://yewtu.be",
+      "https://inv.nadeko.net",
+      "https://invidious.flokinet.to",
+      "https://vid.puffyan.us"
+    ];
+
+    for (const instance of instances) {
+      try {
+        const targetUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+        const res = await fetch(proxyUrl);
+        if (res.ok) {
+          const resData = await res.json();
+          const data = typeof resData.contents === 'string' ? JSON.parse(resData.contents) : resData.contents;
+          if (Array.isArray(data)) {
+            const videoIds = data
+              .filter((item: any) => item.videoId)
+              .slice(0, 2)
+              .map((item: any) => item.videoId);
+            if (videoIds.length > 0) {
+              console.log(`Successfully fetched YouTube videos from Invidious via proxy: ${instance}`);
+              return videoIds;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`Proxy Invidious instance ${instance} failed:`, e);
+      }
+    }
+
+    // Fallback: DuckDuckGo HTML search via AllOrigins/CorsProxy with simplified query
+    const ddgUrl = `https://html.duckduckgo.com/html/?q=site:youtube.com+${encodeURIComponent(query)}`;
+    
+    try {
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(ddgUrl)}`;
+      const res = await fetch(proxyUrl);
+      if (res.ok) {
+        const data = await res.json();
+        const html = data.contents || "";
+        const matches = [...html.matchAll(/href="[^"]*youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/g)];
+        const videoIds = [...new Set(matches.map(m => m[1]))].slice(0, 2);
+        if (videoIds.length > 0) return videoIds;
+      }
+    } catch (e) {
+      console.warn("AllOrigins YouTube search failed, trying fallback...", e);
+    }
+
+    try {
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`;
+      const res = await fetch(proxyUrl);
+      if (res.ok) {
+        const html = await res.text();
+        const matches = [...html.matchAll(/href="[^"]*youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/g)];
+        const videoIds = [...new Set(matches.map(m => m[1]))].slice(0, 2);
+        if (videoIds.length > 0) return videoIds;
+      }
+    } catch (e) {
+      console.warn("CorsProxy YouTube search failed...", e);
+    }
+
+    return [];
+  };
+
+  const renderMessageText = (text: string) => {
+    if (!text) return null;
+    
+    // Match markdown links: [Link Text](http...)
+    const matches = [...text.matchAll(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g)];
+    
+    if (matches.length === 0) {
+      // Match raw URLs
+      const urlMatches = [...text.matchAll(/(https?:\/\/[^\s]+)/g)];
+      if (urlMatches.length === 0) {
+        return text;
+      }
+      
+      let lastIdx = 0;
+      const parts: React.ReactNode[] = [];
+      urlMatches.forEach((match, index) => {
+        const url = match[1];
+        const matchIdx = match.index || 0;
+        if (matchIdx > lastIdx) {
+          parts.push(text.substring(lastIdx, matchIdx));
+        }
+        parts.push(
+          <a 
+            key={`url-${index}`} 
+            href={url} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-indigo-400 hover:text-indigo-300 underline font-semibold break-all"
+          >
+            {url}
+          </a>
+        );
+        lastIdx = matchIdx + url.length;
+      });
+      if (lastIdx < text.length) {
+        parts.push(text.substring(lastIdx));
+      }
+      return parts;
+    }
+
+    let lastIndex = 0;
+    const parts: React.ReactNode[] = [];
+    matches.forEach((match, index) => {
+      const matchIdx = match.index || 0;
+      const linkText = match[1];
+      const linkUrl = match[2];
+
+      if (matchIdx > lastIndex) {
+        parts.push(text.substring(lastIndex, matchIdx));
+      }
+
+      parts.push(
+        <a 
+          key={`link-${index}`} 
+          href={linkUrl} 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="text-indigo-400 hover:text-indigo-300 underline font-semibold break-all"
+        >
+          {linkText}
+        </a>
+      );
+
+      lastIndex = matchIdx + match[0].length;
+    });
+
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    return parts;
   };
 
   const cleanTextForSpeech = (text: string): string => {
@@ -238,67 +413,140 @@ function ClassroomContent() {
       .trim();
   };
 
-  const speakText = (text: string) => {
-    const cleanedText = cleanTextForSpeech(text);
-    if (!cleanedText || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-
-    const start = () => {
-      const voices = window.speechSynthesis.getVoices();
-      if (!voices.length) {
-        console.warn("No voices available.");
+  const speakTextBrowserFallback = (cleanedText: string) => {
+    try {
+      console.log("Playing speech via browser Web Speech API fallback...");
+      if (typeof window === 'undefined' || !window.speechSynthesis) {
+        console.warn("Speech synthesis not supported in this browser.");
+        setIsTalking(false);
         return;
       }
-
-      // Pick voice matching user preference
-      const voice = voices.find(v => v.lang.startsWith("en")) || voices[0];
-
-      // Split into sentence chunks
-      const chunks = (cleanedText.match(/[^.!?]+[.!?]*/g) || [cleanedText])
-        .map(c => c.trim())
-        .filter(c => c.length > 2);
-      
-      if (chunks.length === 0) return;
-      
-      setIsTalking(true);
-      let idx = 0;
-      
-      const playNext = () => {
-        if (idx >= chunks.length) {
-          setIsTalking(false);
-          return;
-        }
-        
-        const u = new SpeechSynthesisUtterance(chunks[idx]);
-        if (voice) u.voice = voice;
-        u.rate = 1;
-        u.pitch = 1;
-        u.volume = 1;
-        
-        // Prevent garbage collection
-        (window as any)._animlyUtterance = u;
-        
-        u.onend = () => {
-          idx++;
-          setTimeout(playNext, 100);
-        };
-        
-        u.onerror = () => {
-          idx++;
-          setTimeout(playNext, 100);
-        };
-        
-        window.speechSynthesis.speak(u);
-      };
       
       window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-      playNext();
-    };
+      
+      const utterance = new SpeechSynthesisUtterance(cleanedText);
+      const isFemale = character === 'ada' || character === 'ms_curie';
+      const voices = window.speechSynthesis.getVoices();
+      
+      let selectedVoice = voices.find(v => {
+        const name = v.name.toLowerCase();
+        const lang = v.lang.toLowerCase();
+        if (lang.includes('en-in') || lang.includes('en-us') || lang.includes('en-gb')) {
+          if (isFemale && (name.includes('female') || name.includes('zira') || name.includes('google us english') || name.includes('samantha') || name.includes('hazel') || name.includes('karen') || name.includes('moira') || name.includes('tessa'))) {
+            return true;
+          }
+          if (!isFemale && (name.includes('male') || name.includes('david') || name.includes('google uk english') || name.includes('microsoft'))) {
+            return true;
+          }
+        }
+        return false;
+      });
 
-    if (window.speechSynthesis.getVoices().length) {
-      start();
-    } else {
-      window.speechSynthesis.onvoiceschanged = start;
+      if (!selectedVoice) {
+        selectedVoice = voices.find(v => v.lang.toLowerCase().includes('en')) || voices[0];
+      }
+
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
+
+      utterance.pitch = character === 'ada' ? 1.25 : character === 'ms_curie' ? 1.05 : character === 'mr_newton' ? 0.95 : 1.0;
+      utterance.rate = 1.0;
+
+      utterance.onstart = () => {
+        setIsTalking(true);
+      };
+
+      utterance.onend = () => {
+        setIsTalking(false);
+      };
+
+      utterance.onerror = (e) => {
+        console.error("Speech synthesis error:", e);
+        setIsTalking(false);
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error("Browser fallback speech synthesis failed:", e);
+      setIsTalking(false);
+    }
+  };
+
+  const speakText = async (text: string) => {
+    const cleanedText = cleanTextForSpeech(text);
+    if (!cleanedText) return;
+
+    // Stop any currently playing audio
+    if (activeAudioRef.current) {
+      activeAudioRef.current.pause();
+      activeAudioRef.current = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
+    if (!userData || !userData.sarvamApiKey) {
+      console.warn("No Sarvam API key available for TTS. Falling back to Browser Web Speech API...");
+      speakTextBrowserFallback(cleanedText);
+      return;
+    }
+
+    try {
+      const voiceMap: { [key: string]: string } = {
+        ada: "ishita",
+        leo: "shubh",
+        mr_newton: "manan",
+        ms_curie: "shreya"
+      };
+      const speakerId = voiceMap[character] || "shubh";
+
+      const response = await fetch("https://api.sarvam.ai/text-to-speech", {
+        method: "POST",
+        headers: {
+          "api-subscription-key": userData.sarvamApiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          text: cleanedText,
+          model: "bulbul:v3",
+          target_language_code: "en-IN",
+          speaker: speakerId
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData?.message || `Failed to generate speech: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const base64Audio = data.audios[0];
+      
+      const audioUrl = `data:audio/wav;base64,${base64Audio}`;
+      const audio = new Audio(audioUrl);
+      activeAudioRef.current = audio;
+
+      audio.onplay = () => {
+        setIsTalking(true);
+      };
+
+      audio.onended = () => {
+        setIsTalking(false);
+        activeAudioRef.current = null;
+      };
+
+      audio.onerror = (e) => {
+        console.error("Audio playback error, falling back to Browser Web Speech API:", e);
+        setIsTalking(false);
+        activeAudioRef.current = null;
+        speakTextBrowserFallback(cleanedText);
+      };
+
+      await audio.play();
+    } catch (error) {
+      console.error("Sarvam TTS Error, falling back to Browser Web Speech API:", error);
+      speakTextBrowserFallback(cleanedText);
     }
   };
 
@@ -330,7 +578,7 @@ function ClassroomContent() {
     setIsSending(true);
 
     try {
-      if (!userData || !userData.customGroqKey) {
+      if (!userData || !userData.customGroqKey || !userData.sarvamApiKey) {
         setShowKeyModal(true);
         setIsSending(false);
         return;
@@ -346,17 +594,18 @@ CRITICAL RULES:
 1. You MUST strictly stick to the uploaded PDF material (context) provided below. 
 2. Do NOT answer questions outside the scope of this material, unless it is a direct comparison to the material.
 3. You MUST reply in JSON format with exactly four fields.
-4. DEFAULT TO TEXT & BULLET POINTS: You MUST ALWAYS populate whiteboard_html with detailed, beautifully formatted textual explanations. You MUST use bullet points (<ul> or <ol> with <li>) to explain concepts clearly, along with headings to summarize your response. Do NOT use massive walls of text; break them down into bulleted lists. Do NOT leave whiteboard_html empty.
-5. IF ASKED FOR COMPARISON: If the user asks to compare or show differences, you MUST use an HTML <table> in the whiteboard_html. Do NOT use flowcharts for comparisons.
-6. IF ASKED FOR VISUAL/FLOWCHART: If the user asks for a flowchart, visual graph, or diagram, populate react_flow_data with nodes and edges. Otherwise, leave it completely empty arrays [].
-7. JSON ESCAPING: The whiteboard_html value MUST be a single valid JSON string. Ensure you escape all double quotes within the HTML string (e.g. class=\\"text-xl\\") or use single quotes instead.
-8. IF ASKED FOR VIDEO: Set 'youtube_search_query' to a highly relevant search phrase (e.g. 'Python beginners tutorial'). If not asked for video, leave it as an empty string "". DO NOT put search links in whiteboard_html.
-9. NODE DESCRIPTIONS: The 'description' field for each node in react_flow_data MUST be highly detailed, containing at least 3-4 full sentences explaining the concept thoroughly. DO NOT use one-line descriptions.
+4. MINIMAL AND PRECISE INFO: You MUST keep all answers (both 'text' and 'whiteboard_html') extremely minimal, precise, and accurate. Each response MUST be at most 4-5 lines of text in total. Focus on high-yield, short key points. Do NOT exceed 5 lines of text.
+5. DEFAULT TO TEXT & BULLET POINTS: You MUST ALWAYS populate whiteboard_html with minimal, beautifully formatted textual explanations. You MUST use bullet points (<ul> or <ol> with <li>) to explain concepts clearly, along with headings to summarize your response. Do NOT leave whiteboard_html empty.
+6. IF ASKED FOR COMPARISON: If the user asks to compare or show differences, you MUST use an HTML <table> in the whiteboard_html. Do NOT use flowcharts for comparisons.
+7. IF ASKED FOR VISUAL/FLOWCHART: If the user asks for a flowchart, visual graph, or diagram, populate react_flow_data with nodes and edges. Otherwise, leave it completely empty arrays [].
+8. JSON ESCAPING: The whiteboard_html value MUST be a single valid JSON string. Ensure you escape all double quotes within the HTML string (e.g. class=\\"text-xl\\") or use single quotes instead.
+9. YOUTUBE SEARCH: If the student asks for a video, or if you are explaining a complex visual/technical topic where a video tutorial would be highly beneficial, set 'youtube_search_query' to a highly relevant search phrase (e.g. 'Newton's laws of motion experiment animation'). Otherwise, set it to an empty string "". DO NOT put search links in whiteboard_html.
+10. NODE DESCRIPTIONS: The 'description' field for each node in react_flow_data MUST be highly detailed, containing at least 3-4 full sentences explaining the concept thoroughly. DO NOT use one-line descriptions.
 
 {
-  "text": "Your concise, spoken response to the student.",
+  "text": "Your concise, spoken response to the student (max 4-5 lines).",
   "youtube_search_query": "",
-  "whiteboard_html": "HTML formatted content to display on the whiteboard. Use TailwindCSS classes for styling (e.g., <h2 class='text-3xl font-extrabold text-slate-900 mb-4'> and <p class='text-slate-800'>). You MUST make all text very dark (use text-slate-900). Use HTML <ul> or <ol> for bullet points, and properly formatted <table> for comparisons. MUST ALWAYS contain detailed textual summaries.",
+  "whiteboard_html": "HTML formatted content to display on the whiteboard. Use TailwindCSS classes for styling (e.g., <h2 class='text-3xl font-extrabold text-slate-900 mb-4'> and <p class='text-slate-800'>). You MUST make all text very dark (use text-slate-900). Use HTML <ul> or <ol> for bullet points, and properly formatted <table> for comparisons. MUST contain minimal, precise textual summaries (max 4-5 lines).",
   "react_flow_data": {
     "nodes": [{"id": "1", "data": {"label": "Node 1", "description": "A VERY long, highly detailed, multi-sentence paragraph explaining this concept in-depth."}, "position": {"x": 0, "y": 0}}],
     "edges": [{"id": "e1-2", "source": "1", "target": "2"}]
@@ -367,22 +616,60 @@ Note: If no flow graph is requested, MUST leave nodes and edges as empty arrays 
 
 Use the following context if relevant: ${pdfContext ? pdfContext.substring(0, 5000) : "Student asks a question."}`;
 
-      const chatCompletion = await groq.chat.completions.create({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMsg }
-        ],
-        model: 'llama-3.1-8b-instant',
-        temperature: 0.7,
-        response_format: { type: "json_object" }
-      });
-
-      const responseContent = chatCompletion.choices[0]?.message?.content || "{}";
+      let chatCompletion;
       let data = { text: "I'm sorry, I couldn't formulate a response.", whiteboard_html: "", react_flow_data: null as any, youtube_search_query: "" };
+      
       try {
-        data = JSON.parse(responseContent);
-      } catch (e) {
-        console.error("JSON parsing error:", e);
+        chatCompletion = await groq.chat.completions.create({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMsg }
+          ],
+          model: 'llama-3.1-8b-instant',
+          temperature: 0.7,
+          response_format: { type: "json_object" },
+          max_tokens: 4096
+        });
+        
+        const responseContent = chatCompletion.choices[0]?.message?.content || "{}";
+        try {
+          data = JSON.parse(responseContent);
+        } catch (e) {
+          console.error("JSON parsing error, falling back to plain-text structure conversion:", e);
+          data = {
+            text: responseContent,
+            whiteboard_html: `<div class='p-4'><h2 class='text-2xl font-bold text-slate-900 mb-2'>Lesson Notes</h2><p class='text-slate-800 whitespace-pre-wrap'>${responseContent.replace(/"/g, "'")}</p></div>`,
+            react_flow_data: { nodes: [], edges: [] },
+            youtube_search_query: userMsg.substring(0, 60)
+          };
+        }
+      } catch (innerError: any) {
+        console.warn("Groq JSON completion failed, retrying in plain-text fallback mode...", innerError);
+        const fallbackSystemPrompt = `You are ${character}, an interactive AI tutor. 
+CRITICAL RULES:
+1. You MUST strictly stick to the uploaded PDF material (context) provided below. 
+2. Do NOT answer questions outside the scope of this material.
+3. Answer the user's question clearly, concisely, and directly.
+
+Use the following context if relevant: ${pdfContext ? pdfContext.substring(0, 4000) : "Student asks a question."}`;
+
+        chatCompletion = await groq.chat.completions.create({
+          messages: [
+            { role: 'system', content: fallbackSystemPrompt },
+            { role: 'user', content: userMsg }
+          ],
+          model: 'llama-3.1-8b-instant',
+          temperature: 0.7,
+          max_tokens: 4096
+        });
+
+        const rawContent = chatCompletion.choices[0]?.message?.content || "I'm sorry, I couldn't formulate a response.";
+        data = {
+          text: rawContent,
+          whiteboard_html: `<div class='p-4'><h2 class='text-2xl font-bold text-slate-900 mb-2'>Lesson Notes</h2><p class='text-slate-800 whitespace-pre-wrap'>${rawContent.replace(/"/g, "'")}</p></div>`,
+          react_flow_data: { nodes: [], edges: [] },
+          youtube_search_query: userMsg.substring(0, 60)
+        };
       }
 
       setChatMessages(prev => [...prev, { role: 'tutor', text: data.text }]);
@@ -431,7 +718,7 @@ Use the following context if relevant: ${pdfContext ? pdfContext.substring(0, 50
     } catch (error: any) {
       console.error("Chat error:", error);
       
-      let errorMsg = "Sorry, I encountered an error answering your question. Please try again.";
+      let errorMsg = "Sorry, I encountered an error answering your question. Please verify your Groq API key is valid and has sufficient quota, then try again.";
       if (error?.error?.code === 'json_validate_failed' || (error.message && error.message.includes("json"))) {
          errorMsg = "Oops, I had trouble formatting the visuals. Please ask again in a slightly different way.";
       }
@@ -468,17 +755,24 @@ Use the following context if relevant: ${pdfContext ? pdfContext.substring(0, 50
           0% { transform: translateX(-500px) translateY(20px); opacity: 0; }
           100% { transform: translateX(0) translateY(0); opacity: 1; }
         }
+        @keyframes idleBreathing {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-5px) scale(1.01, 0.99); }
+        }
         @keyframes talkingGesture {
           0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
-          25% { transform: translateY(-15px) rotate(-2deg) scale(1.02); }
-          75% { transform: translateY(-5px) rotate(2deg) scale(1.02); }
+          25% { transform: translateY(-15px) rotate(-1deg) scale(1.02, 0.98); }
+          75% { transform: translateY(-5px) rotate(2deg) scale(1.01, 0.99); }
         }
-        .animate-walk-in {
-          animation: walkIn 1.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        @keyframes thinkingSway {
+          0%, 100% { transform: translateY(0) rotate(0deg); }
+          50% { transform: translateY(-10px) rotate(-3deg); }
         }
-        .animate-talking {
-          animation: talkingGesture 2s ease-in-out infinite;
-        }
+        .animate-walk-in { animation: walkIn 1.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+        .animate-idle { animation: idleBreathing 4s ease-in-out infinite; }
+        .animate-talking { animation: talkingGesture 2s ease-in-out infinite; }
+        .animate-thinking { animation: thinkingSway 3s ease-in-out infinite; }
+        .active-transition { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
       `}} />
 
       <div className="fixed inset-0 w-full h-[100dvh] z-50 bg-slate-900 overflow-hidden animate-in fade-in duration-1000">
@@ -507,7 +801,7 @@ Use the following context if relevant: ${pdfContext ? pdfContext.substring(0, 50
 
           <div className="pointer-events-auto flex items-center gap-4 bg-black/40 backdrop-blur-md px-5 py-2.5 rounded-full border border-white/20 shadow-xl">
             <div className={`w-8 h-8 rounded-full overflow-hidden border border-white/20 ${isTalking ? 'shadow-[0_0_15px_rgba(99,102,241,0.8)]' : ''}`}>
-              <img src={`/images/${character}.png?v=2`} alt={character} className="w-full h-full object-cover" />
+              <img src={`/images/${character}_${characterFrame}.png`} alt={character} className="w-full h-full object-cover transition-transform duration-200" />
             </div>
             <div>
               <h3 className="font-semibold text-white text-sm capitalize leading-tight">{character.replace('_', ' ')}</h3>
@@ -584,10 +878,12 @@ Use the following context if relevant: ${pdfContext ? pdfContext.substring(0, 50
         </div>
 
         <div
-          className={`absolute bottom-[-1%] left-[-2vw] md:left-[-5%] xl:left-0 z-40 md:z-20 w-[38vw] md:w-[500px] xl:w-[650px] origin-bottom animate-walk-in pointer-events-none ${isTalking ? 'animate-talking' : ''}`}
+          className={`absolute bottom-[-1%] left-[-2vw] md:left-[-5%] xl:left-0 z-40 md:z-20 w-[38vw] md:w-[500px] xl:w-[650px] origin-bottom animate-walk-in pointer-events-none active-transition ${
+            isSending ? 'animate-thinking' : isTalking ? 'animate-talking' : 'animate-idle'
+          }`}
           style={{ animationDelay: '0.2s' }}
         >
-          <img src={`/images/${character}.png?v=2`} alt={character} className="w-full h-auto drop-shadow-[0_20px_50px_rgba(0,0,0,0.5)]" />
+          <img src={`/images/${character}_${characterFrame}.png`} alt={character} className="w-full h-auto drop-shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-transform duration-200" />
         </div>
 
         <div className="absolute right-2 md:right-6 left-[34vw] md:left-auto bottom-2 md:bottom-6 top-[54%] md:top-24 w-auto md:w-[400px] z-30 flex flex-col bg-slate-950/80 backdrop-blur-2xl rounded-3xl border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden">
@@ -605,7 +901,7 @@ Use the following context if relevant: ${pdfContext ? pdfContext.substring(0, 50
                     : 'self-end bg-indigo-600 text-white rounded-tr-sm'
                   }`}
               >
-                {msg.text}
+                {renderMessageText(msg.text)}
               </div>
             ))}
             {isSending && (
@@ -644,11 +940,9 @@ Use the following context if relevant: ${pdfContext ? pdfContext.substring(0, 50
       {showKeyModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
           <div className="bg-slate-900 border border-white/10 p-8 rounded-2xl shadow-2xl max-w-md w-full animate-in fade-in zoom-in duration-300">
-            <h2 className="text-2xl font-bold text-white mb-2">API Key Configuration</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">API Keys Configuration</h2>
             <p className="text-slate-400 text-sm mb-6">
-              To build immersive interactive sessions, please provide your own Groq API Key.
-              <br/><br/>
-              Don't have an API key? <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 underline">Get one here</a>.
+              To build immersive interactive sessions, please ensure you have set both your custom Groq API Key and Sarvam API Key on the dashboard.
             </p>
             <div className="flex gap-4">
               <button

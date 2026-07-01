@@ -41,6 +41,7 @@ export default function Login() {
         const newData = { 
           usedFreeTier: false, 
           customGroqKey: null,
+          sarvamApiKey: null,
           email: result.user.email
         };
         await set(dbRef, newData);

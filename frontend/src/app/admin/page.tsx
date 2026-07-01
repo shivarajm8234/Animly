@@ -9,6 +9,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 type UserData = {
   usedFreeTier?: boolean;
   customGroqKey?: string | null;
+  sarvamApiKey?: string | null;
   email?: string;
 };
 
@@ -120,7 +121,7 @@ export default function AdminDashboard() {
 
   const totalUsers = Object.keys(usersData).length;
   const usedFreeTier = Object.values(usersData).filter(u => u.usedFreeTier).length;
-  const providedCustomKey = Object.values(usersData).filter(u => !!u.customGroqKey).length;
+  const providedCustomKey = Object.values(usersData).filter(u => !!u.customGroqKey || !!u.sarvamApiKey).length;
   const adminUsers = Object.values(usersData).filter(u => u.email === 'shivarajmani2005@gmail.com').length;
 
   return (
@@ -183,7 +184,7 @@ export default function AdminDashboard() {
                   <th className="px-6 py-4 font-medium">User UID</th>
                   <th className="px-6 py-4 font-medium">Email</th>
                   <th className="px-6 py-4 font-medium">Used Free Tier</th>
-                  <th className="px-6 py-4 font-medium">Has API Key</th>
+                  <th className="px-6 py-4 font-medium">Has API Keys</th>
                   <th className="px-6 py-4 font-medium text-right">Role</th>
                   <th className="px-6 py-4 font-medium text-right">Actions</th>
                 </tr>
@@ -205,15 +206,26 @@ export default function AdminDashboard() {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      {data.customGroqKey ? (
-                        <span className="inline-flex items-center gap-1.5 py-1 px-2 rounded-md bg-amber-500/10 text-amber-400 text-xs font-medium border border-amber-500/20">
-                          Custom Key
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 py-1 px-2 rounded-md bg-slate-500/10 text-slate-400 text-xs font-medium border border-slate-500/20">
-                          None
-                        </span>
-                      )}
+                      <div className="flex flex-col gap-1 items-start">
+                        {data.customGroqKey ? (
+                          <span className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded bg-indigo-500/10 text-indigo-300 text-[10px] font-medium border border-indigo-500/20">
+                            Groq: Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded bg-slate-500/10 text-slate-400 text-[10px] font-medium border border-slate-500/10">
+                            Groq: None
+                          </span>
+                        )}
+                        {data.sarvamApiKey ? (
+                          <span className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded bg-emerald-500/10 text-emerald-300 text-[10px] font-medium border border-emerald-500/20">
+                            Sarvam: Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 py-0.5 px-1.5 rounded bg-slate-500/10 text-slate-400 text-[10px] font-medium border border-slate-500/10">
+                            Sarvam: None
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-right">
                       {data.email === 'shivarajmani2005@gmail.com' ? (

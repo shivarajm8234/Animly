@@ -1,4 +1,57 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Whiteboard custom styling for perfect alignment and formatting */
+.prose-slate {
+  color: #0f172a !important; /* text-slate-900 */
+}
+.prose-slate h1, .prose-slate h2, .prose-slate h3, .prose-slate h4 {
+  color: #0f172a !important;
+  font-weight: 800;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.25;
+}
+.prose-slate h1 { font-size: 1.875rem; }
+.prose-slate h2 { font-size: 1.5rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.25rem; }
+.prose-slate h3 { font-size: 1.25rem; }
+.prose-slate p {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+.prose-slate ul {
+  list-style-type: disc !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.prose-slate ol {
+  list-style-type: decimal !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.prose-slate li {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  display: list-item !important;
+}
+.prose-slate table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+.prose-slate th, .prose-slate td {
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.prose-slate th {
+  background-color: #f1f5f9;
+  font-weight: 700;
+}
 
 :root {
   --background: #ffffff;

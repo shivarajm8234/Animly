@@ -15,9 +15,10 @@ export default function Home() {
 
   // User State
   const [user, setUser] = useState<User | null>(null);
-  const [userData, setUserData] = useState<{ usedFreeTier?: boolean, freeTierStartTime?: number, customGroqKey: string | null, email?: string } | null>(null);
+  const [userData, setUserData] = useState<{ usedFreeTier?: boolean, freeTierStartTime?: number, customGroqKey: string | null, sarvamApiKey: string | null, email?: string } | null>(null);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [tempKeyInput, setTempKeyInput] = useState('');
+  const [tempSarvamKeyInput, setTempSarvamKeyInput] = useState('');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const [pastSessions, setPastSessions] = useState<{ id: string, pdfText: string, createdAt: number, character: string, scenario?: string }[]>([]);
@@ -88,10 +89,14 @@ export default function Home() {
   };
 
   const saveCustomKey = async () => {
-    if (!user || !tempKeyInput.trim()) return;
+    if (!user) return;
     const dbRef = ref(database, 'users/' + user.uid);
-    await update(dbRef, { customGroqKey: tempKeyInput.trim() });
-    setUserData(prev => prev ? { ...prev, customGroqKey: tempKeyInput.trim() } : null);
+    const updates = {
+      customGroqKey: tempKeyInput.trim() || null,
+      sarvamApiKey: tempSarvamKeyInput.trim() || null
+    };
+    await update(dbRef, updates);
+    setUserData(prev => prev ? { ...prev, ...updates } : null);
     setShowKeyModal(false);
   };
 
@@ -158,7 +163,12 @@ export default function Home() {
                       </Link>
                     )}
                     <button 
-                      onClick={() => { setShowKeyModal(true); setShowProfileMenu(false); }} 
+                      onClick={() => { 
+                        setTempKeyInput(userData?.customGroqKey || ''); 
+                        setTempSarvamKeyInput(userData?.sarvamApiKey || ''); 
+                        setShowKeyModal(true); 
+                        setShowProfileMenu(false); 
+                      }} 
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors text-left"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
@@ -232,7 +242,7 @@ export default function Home() {
                   
                   <div className="flex gap-4 p-4">
                     <div className="w-10 h-10 rounded-full bg-indigo-500/20 overflow-hidden flex-shrink-0 mt-0.5 border border-white/10">
-                      <img src={`/images/${session.character}.png?v=2`} alt={session.character} className="w-full h-full object-cover" />
+                      <img src={`/images/${session.character}_idle.png`} alt={session.character} className="w-full h-full object-cover" />
                     </div>
                     <div className="flex flex-col flex-1 pr-2">
                       <h3 className="font-semibold text-white capitalize text-base leading-tight mb-1 group-hover:text-indigo-300 transition-colors line-clamp-2">Class with {session.character.replace('_', ' ')}</h3>
@@ -252,20 +262,36 @@ export default function Home() {
       {showKeyModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
           <div className="bg-slate-900 border border-white/10 p-8 rounded-2xl shadow-2xl max-w-md w-full animate-in fade-in zoom-in duration-300">
-            <h2 className="text-2xl font-bold text-white mb-2">API Key Configuration</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">API Keys Configuration</h2>
             <p className="text-slate-400 text-sm mb-6">
               {userData?.usedFreeTier ? "You have consumed your 1 free PDF session. " : ""}
-              To build immersive interactive sessions, please provide your own Groq API Key.
-              <br/><br/>
-              Don't have an API key? <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 underline">Get one here</a>.
+              Please provide your custom API keys below to run the classroom and speech.
             </p>
-            <input
-              type="password"
-              placeholder="gsk_..."
-              value={tempKeyInput}
-              onChange={(e) => setTempKeyInput(e.target.value)}
-              className="w-full bg-slate-950/50 border border-slate-700 rounded-xl py-3 px-4 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-6"
-            />
+            
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Groq API Key (for Chat)</label>
+              <input
+                type="password"
+                placeholder="gsk_..."
+                value={tempKeyInput}
+                onChange={(e) => setTempKeyInput(e.target.value)}
+                className="w-full bg-slate-950/50 border border-slate-700 rounded-xl py-3 px-4 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <span className="text-[10px] text-slate-500 mt-1 block">Don't have a Groq key? <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 underline">Get one here</a>.</span>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Sarvam API Key (for Text-to-Speech)</label>
+              <input
+                type="password"
+                placeholder="Enter Sarvam API Subscription Key"
+                value={tempSarvamKeyInput}
+                onChange={(e) => setTempSarvamKeyInput(e.target.value)}
+                className="w-full bg-slate-950/50 border border-slate-700 rounded-xl py-3 px-4 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <span className="text-[10px] text-slate-500 mt-1 block">Don't have a Sarvam key? <a href="https://dashboard.sarvam.ai" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:text-indigo-300 underline">Get one here</a>.</span>
+            </div>
+
             <div className="flex gap-4">
               <button
                 onClick={() => setShowKeyModal(false)}
@@ -275,10 +301,9 @@ export default function Home() {
               </button>
               <button
                 onClick={saveCustomKey}
-                disabled={!tempKeyInput.trim()}
-                className="flex-1 px-4 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 disabled:bg-slate-700 transition-colors font-semibold"
+                className="flex-1 px-4 py-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 transition-colors font-semibold"
               >
-                Save Key
+                Save Keys
               </button>
             </div>
           </div>
