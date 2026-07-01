@@ -22,6 +22,12 @@ type ViewLog = {
   timestamp: number;
 };
 
+type Subscription = {
+  id: string;
+  email: string;
+  timestamp: number;
+};
+
 export default function AdminDashboard() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,6 +35,8 @@ export default function AdminDashboard() {
   
   const [usersData, setUsersData] = useState<Record<string, UserData>>({});
   const [viewLogs, setViewLogs] = useState<ViewLog[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [isSubscriptionMode, setIsSubscriptionMode] = useState<boolean>(true);
   
   const extendFreeTier = async (uid: string) => {
     try {
@@ -45,6 +53,16 @@ export default function AdminDashboard() {
       alert('Free tier extended by 5 minutes for user.');
     } catch (e: any) {
       alert('Error extending free tier: ' + e.message);
+    }
+  };
+
+  const toggleSubscriptionMode = async () => {
+    try {
+      const newValue = !isSubscriptionMode;
+      await update(ref(database, 'app_config'), { subscription_mode: newValue });
+      setIsSubscriptionMode(newValue);
+    } catch (e: any) {
+      alert('Error updating config: ' + e.message);
     }
   };
   
@@ -85,6 +103,27 @@ export default function AdminDashboard() {
             ...viewsData[key]
           })).sort((a: any, b: any) => b.timestamp - a.timestamp);
           setViewLogs(viewsArray);
+        }
+
+        // Fetch subscriptions
+        const subRef = ref(database, 'subscriptions');
+        const subSnapshot = await get(subRef);
+        if (subSnapshot.exists()) {
+          const subData = subSnapshot.val();
+          const subArray = Object.keys(subData).map(key => ({
+            id: key,
+            ...subData[key]
+          })).sort((a: any, b: any) => b.timestamp - a.timestamp);
+          setSubscriptions(subArray);
+        }
+
+        // Fetch config
+        const configRef = ref(database, 'app_config/subscription_mode');
+        const configSnapshot = await get(configRef);
+        if (configSnapshot.exists()) {
+          setIsSubscriptionMode(configSnapshot.val());
+        } else {
+          setIsSubscriptionMode(true);
         }
       } catch (err: any) {
         setError("Error fetching data: " + err.message);
@@ -132,10 +171,21 @@ export default function AdminDashboard() {
             <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">Admin Dashboard</h1>
             <p className="text-slate-400 mt-2">Manage users and view application usage statistics.</p>
           </div>
-          <Link href="/" className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-xl transition-colors flex items-center gap-2 text-sm">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
-            Back to App
-          </Link>
+          <div className="flex gap-4 items-center">
+            <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-xl border border-white/5">
+              <span className="text-sm font-medium text-slate-300">Waitlist Mode:</span>
+              <button 
+                onClick={toggleSubscriptionMode}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isSubscriptionMode ? 'bg-indigo-500' : 'bg-slate-600'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isSubscriptionMode ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            <Link href="/" className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-xl transition-colors flex items-center gap-2 text-sm">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+              Back to App
+            </Link>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
@@ -312,6 +362,52 @@ export default function AdminDashboard() {
                   <tr>
                     <td colSpan={5} className="px-6 py-12 text-center text-slate-500 italic">
                       No classroom views have been recorded yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Subscriptions Table */}
+        <div className="bg-slate-900 border border-white/5 rounded-2xl overflow-hidden shadow-xl mt-12 mb-12">
+          <div className="p-6 border-b border-white/5 bg-white/[0.02] flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76"></path></svg>
+                Waitlist Subscriptions
+              </h2>
+              <p className="text-sm text-slate-400 mt-1">Users subscribed for product launch notifications.</p>
+            </div>
+            <div className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg text-sm border border-white/5 font-medium">
+              Total Subscribers: {subscriptions.length}
+            </div>
+          </div>
+          <div className="overflow-x-auto max-h-[500px]">
+            <table className="w-full text-left text-sm text-slate-300">
+              <thead className="text-xs uppercase bg-slate-800/50 text-slate-400 sticky top-0 backdrop-blur-md">
+                <tr>
+                  <th className="px-6 py-4 font-medium">Subscriber Email</th>
+                  <th className="px-6 py-4 font-medium text-right">Time Subscribed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {subscriptions.length > 0 ? (
+                  subscriptions.map((sub) => (
+                    <tr key={sub.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-6 py-4 text-sm font-medium text-slate-200">
+                        {sub.email}
+                      </td>
+                      <td className="px-6 py-4 text-right text-xs text-slate-400">
+                        {new Date(sub.timestamp).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={2} className="px-6 py-12 text-center text-slate-500 italic">
+                      No subscriptions have been recorded yet.
                     </td>
                   </tr>
                 )}
