@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import mermaid from 'mermaid';
 import { auth, database } from '../../lib/firebase';
 import { User, signOut, onAuthStateChanged } from 'firebase/auth';
-import { ref, get, set, update, query, orderByChild, equalTo } from 'firebase/database';
+import { ref, get, set, update } from 'firebase/database';
 
 export default function Home() {
   const router = useRouter();
@@ -154,47 +154,49 @@ export default function Home() {
       if (currentProgress > 85) setStatusMessage("Preparing interactive tutor...");
     }, 400);
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("character", character);
-    formData.append("scenario", scenario);
-
     try {
-      const headers: Record<string, string> = {};
-      if (userData.customGroqKey) {
-        headers['X-Groq-Api-Key'] = userData.customGroqKey;
+      if (!userData || !userData.customGroqKey) {
+        setShowKeyModal(true);
+        clearInterval(progressInterval);
+        return;
       }
 
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: headers,
-        body: formData,
-      });
-
-      const data = await response.json();
+      // Parse PDF client-side
+      const pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+      
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      let text = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        text += pageText + '\n';
+      }
 
       clearInterval(progressInterval);
 
-      if (data.text) {
-        setPdfContext(data.text);
+      if (text) {
+        setPdfContext(text);
         setProgress(100);
         setStatusMessage("Waking up AI tutor...");
         
-
         setTimeout(async () => {
           const sessionId = crypto.randomUUID();
           const sessionRef = ref(database, 'sessions/' + sessionId);
           await set(sessionRef, {
             character,
             scenario,
-            pdfContext: data.text,
+            pdfContext: text,
             uid: user.uid,
             createdAt: Date.now()
           });
-          router.push('/classroom/' + sessionId);
+          router.push('/classroom?id=' + sessionId);
         }, 1500);
       } else {
-        throw new Error(data.error || "Failed to parse PDF");
+        throw new Error("Failed to extract text from PDF");
       }
     } catch (error) {
       clearInterval(progressInterval);
@@ -320,7 +322,7 @@ export default function Home() {
                           className={`cursor-pointer rounded-xl p-4 border transition-all duration-300 ${character === opt.id ? 'bg-indigo-900/40 border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.2)]' : 'bg-slate-800/50 border-white/5 hover:bg-slate-700/50'}`}
                         >
                           <div className={`w-16 h-16 rounded-full mb-3 overflow-hidden border-2 transition-all ${character === opt.id ? 'border-indigo-400 shadow-[0_0_15px_rgba(129,140,248,0.5)]' : 'border-transparent'}`}>
-                            <img src={`/images/${opt.id}.png`} alt={opt.name} className="w-full h-full object-cover bg-indigo-500/20" />
+                            <img src={`/images/${opt.id}.png?v=2`} alt={opt.name} className="w-full h-full object-cover bg-indigo-500/20" />
                           </div>
                           <h3 className="font-semibold text-white text-sm">{opt.name}</h3>
                         </div>

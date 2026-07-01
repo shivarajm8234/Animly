@@ -280,7 +280,7 @@ export default function AdminDashboard() {
                         {log.viewerUid}
                       </td>
                       <td className="px-6 py-4 font-mono text-xs text-indigo-300">
-                        <Link href={`/classroom/${log.sessionId}`} className="hover:underline">
+                        <Link href={`/classroom?id=${log.sessionId}`} className="hover:underline">
                           {log.sessionId.substring(0, 8)}...
                         </Link>
                       </td>

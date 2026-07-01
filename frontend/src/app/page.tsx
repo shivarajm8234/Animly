@@ -25,7 +25,7 @@ export default function Home() {
 
   const handleShare = (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(`${window.location.origin}/classroom/${sessionId}`);
+    navigator.clipboard.writeText(`${window.location.origin}/classroom?id=${sessionId}`);
     setCopiedId(sessionId);
     setTimeout(() => setCopiedId(null), 2000);
   };
@@ -201,7 +201,7 @@ export default function Home() {
               {pastSessions.map((session) => (
                 <div 
                   key={session.id} 
-                  onClick={() => router.push(`/classroom/${session.id}`)}
+                  onClick={() => router.push(`/classroom?id=${session.id}`)}
                   className="bg-slate-900/20 hover:bg-slate-800/40 border border-transparent hover:border-white/5 rounded-2xl cursor-pointer transition-all h-full flex flex-col group overflow-hidden"
                 >
                   <div className="relative w-full aspect-video bg-slate-800 overflow-hidden">
@@ -232,7 +232,7 @@ export default function Home() {
                   
                   <div className="flex gap-4 p-4">
                     <div className="w-10 h-10 rounded-full bg-indigo-500/20 overflow-hidden flex-shrink-0 mt-0.5 border border-white/10">
-                      <img src={`/images/${session.character}.png`} alt={session.character} className="w-full h-full object-cover" />
+                      <img src={`/images/${session.character}.png?v=2`} alt={session.character} className="w-full h-full object-cover" />
                     </div>
                     <div className="flex flex-col flex-1 pr-2">
                       <h3 className="font-semibold text-white capitalize text-base leading-tight mb-1 group-hover:text-indigo-300 transition-colors line-clamp-2">Class with {session.character.replace('_', ' ')}</h3>
